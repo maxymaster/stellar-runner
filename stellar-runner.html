@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STELLAR RUNNER — A Sci-Fi Platformer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  #gameWrapper {
+    position: relative;
+    border: 2px solid #0ff3;
+    box-shadow: 0 0 40px #0ff2, 0 0 80px #0ff1, inset 0 0 40px #0001;
+  }
+
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-item {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff, 0 0 20px #0ff5;
+    letter-spacing: 2px;
+  }
+
+  .hud-item span {
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .hud-lives {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .hud-lives .life {
+    width: 12px; height: 12px;
+    background: #0f0;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #0f0, 0 0 12px #0f05;
+  }
+
+  .hud-lives .life.lost {
+    background: #333;
+    box-shadow: none;
+  }
+
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #000c;
+    z-index: 20;
+    backdrop-filter: blur(4px);
+  }
+
+  #overlay.hidden { display: none; }
+
+  #overlay h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 48px;
+    font-weight: 900;
+    color: #0ff;
+    text-shadow: 0 0 20px #0ff, 0 0 60px #0ff5, 0 0 100px #0ff3;
+    letter-spacing: 8px;
+    margin-bottom: 8px;
+  }
+
+  #overlay h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    color: #f0f;
+    text-shadow: 0 0 10px #f0f;
+    letter-spacing: 6px;
+    margin-bottom: 40px;
+  }
+
+  #overlay .info {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+  }
+
+  #overlay .prompt {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    color: #fff;
+    letter-spacing: 4px;
+    animation: pulse 1.5s ease-in-out infinite;
+    margin-top: 20px;
+  }
+
+  #overlay .level-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    color: #0f0;
+    text-shadow: 0 0 20px #0f0;
+    letter-spacing: 6px;
+  }
+
+  #overlay .score-final {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 22px;
+    color: #ff0;
+    text-shadow: 0 0 15px #ff0;
+    letter-spacing: 4px;
+    margin-top: 12px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  .scanline {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 15;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      #0001 2px,
+      #0001 4px
+    );
+  }
+</style>
+</head>
+<body>
+
+<div id="gameWrapper">
+  <canvas id="game"></canvas>
+  <div class="scanline"></div>
+  <div id="hud">
+    <div class="hud-item">SCORE <span id="scoreDisplay">0</span></div>
+    <div class="hud-item">LEVEL <span id="levelDisplay">1</span></div>
+    <div class="hud-item hud-lives" id="livesDisplay"></div>
+    <div class="hud-item">ORBS <span id="orbDisplay">0</span></div>
+  </div>
+  <div id="overlay">
+    <h1>STELLAR RUNNER</h1>
+    <h2>DEEP SPACE EXPEDITION</h2>
+    <div class="info">ARROW KEYS / WASD to move</div>
+    <div class="info">SPACE to jump</div>
+    <div class="info">Collect orbs · Stomp aliens · Reach the portal</div>
+    <div class="prompt">PRESS ENTER TO LAUNCH</div>
+  </div>
+</div>
+
+<script>
+// ─── CANVAS SETUP ─────────────────────────────────────
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 960, H = 540;
+canvas.width = W; canvas.height = H;
+document.getElementById('gameWrapper').style.width = W + 'px';
+
+// ─── GAME STATE ───────────────────────────────────────
+const STATE = { TITLE: 0, PLAYING: 1, LEVEL_COMPLETE: 2, GAME_OVER: 3, WIN: 4 };
+let state = STATE.TITLE;
+let score = 0, lives = 3, orbsCollected = 0, currentLevel = 0;
+let camera = { x: 0 };
+let frameCount = 0;
+let stateTimer = 0;
+let screenShake = 0;
+
+// ─── INPUT ────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Enter' || e.code === 'Space') {
+    if (state === STATE.TITLE) startGame();
+    else if (state === STATE.LEVEL_COMPLETE) nextLevel();
+    else if (state === STATE.GAME_OVER || state === STATE.WIN) resetGame();
+  }
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+// ─── STARS (PARALLAX) ─────────────────────────────────
+const starLayers = [[], [], []];
+for (let l = 0; l < 3; l++) {
+  const count = [120, 60, 25][l];
+  for (let i = 0; i < count; i++) {
+    starLayers[l].push({
+      x: Math.random() * W * 4,
+      y: Math.random() * H,
+      size: [1, 1.5, 2.5][l],
+      brightness: Math.random() * 0.5 + 0.5,
+      twinkleSpeed: Math.random() * 0.03 + 0.01
+    });
+  }
+}
+
+// ─── PARTICLES ────────────────────────────────────────
+let particles = [];
+
+function spawnParticles(x, y, color, count, speed = 3, life = 40) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const v = Math.random() * speed + 0.5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * v,
+      vy: Math.sin(angle) * v - 1,
+      life,
+      maxLife: life,
+      color,
+      size: Math.random() * 3 + 1
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - camera.x, p.y, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── LEVEL DATA ───────────────────────────────────────
+const TILE = 32;
+
+const LEVELS = [
+  // Level 1 — Station Alpha
+  {
+    name: "STATION ALPHA",
+    width: 3200,
+    bgColor: '#050510',
+    nebula: '#0a0030',
+    platforms: [
+      // Ground sections
+      { x: 0, y: H - 32, w: 400, h: 32, type: 'metal' },
+      { x: 480, y: H - 32, w: 300, h: 32, type: 'metal' },
+      { x: 860, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 1140, y: H - 32, w: 500, h: 32, type: 'metal' },
+      { x: 1740, y: H - 32, w: 300, h: 32, type: 'metal' },
+      { x: 2140, y: H - 32, w: 400, h: 32, type: 'metal' },
+      { x: 2640, y: H - 32, w: 560, h: 32, type: 'metal' },
+      // Floating platforms
+      { x: 300, y: H - 130, w: 96, h: 16, type: 'neon' },
+      { x: 500, y: H - 180, w: 96, h: 16, type: 'neon' },
+      { x: 700, y: H - 230, w: 96, h: 16, type: 'neon' },
+      { x: 900, y: H - 150, w: 128, h: 16, type: 'neon' },
+      { x: 1200, y: H - 160, w: 96, h: 16, type: 'neon' },
+      { x: 1380, y: H - 220, w: 96, h: 16, type: 'neon' },
+      { x: 1550, y: H - 130, w: 128, h: 16, type: 'neon' },
+      { x: 1800, y: H - 180, w: 96, h: 16, type: 'neon' },
+      { x: 2000, y: H - 250, w: 96, h: 16, type: 'neon' },
+      { x: 2200, y: H - 160, w: 128, h: 16, type: 'neon' },
+      { x: 2450, y: H - 220, w: 96, h: 16, type: 'neon' },
+      { x: 2650, y: H - 140, w: 96, h: 16, type: 'neon' },
+      // Moving platforms
+      { x: 1050, y: H - 200, w: 80, h: 16, type: 'moving', moveX: 80, speed: 1.2 },
+      { x: 2350, y: H - 300, w: 80, h: 16, type: 'moving', moveX: 100, speed: 1.5 },
+    ],
+    orbs: [
+      { x: 330, y: H - 170 }, { x: 530, y: H - 220 }, { x: 730, y: H - 270 },
+      { x: 940, y: H - 190 }, { x: 1230, y: H - 200 }, { x: 1410, y: H - 260 },
+      { x: 1590, y: H - 170 }, { x: 1830, y: H - 220 }, { x: 2030, y: H - 290 },
+      { x: 2250, y: H - 200 }, { x: 2480, y: H - 260 }, { x: 2690, y: H - 180 },
+      { x: 200, y: H - 70 }, { x: 600, y: H - 70 }, { x: 1300, y: H - 70 },
+      { x: 1850, y: H - 70 }, { x: 2300, y: H - 70 }, { x: 2800, y: H - 70 },
+    ],
+    enemies: [
+      { x: 550, y: H - 64, type: 'crawler', range: 200 },
+      { x: 1250, y: H - 64, type: 'crawler', range: 150 },
+      { x: 1800, y: H - 64, type: 'crawler', range: 180 },
+      { x: 2300, y: H - 64, type: 'crawler', range: 200 },
+      { x: 800, y: H - 280, type: 'floater', range: 100 },
+      { x: 2100, y: H - 300, type: 'floater', range: 120 },
+    ],
+    portal: { x: 3100, y: H - 96 }
+  },
+  // Level 2 — Nebula Crossing
+  {
+    name: "NEBULA CROSSING",
+    width: 3600,
+    bgColor: '#100518',
+    nebula: '#200040',
+    platforms: [
+      { x: 0, y: H - 32, w: 300, h: 32, type: 'metal' },
+      { x: 400, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 750, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 1050, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 1400, y: H - 32, w: 250, h: 32, type: 'metal' },
+      { x: 1800, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 2100, y: H - 32, w: 300, h: 32, type: 'metal' },
+      { x: 2550, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 2900, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 3200, y: H - 32, w: 400, h: 32, type: 'metal' },
+      // Floating
+      { x: 250, y: H - 150, w: 80, h: 16, type: 'neon' },
+      { x: 450, y: H - 220, w: 80, h: 16, type: 'neon' },
+      { x: 650, y: H - 160, w: 96, h: 16, type: 'neon' },
+      { x: 850, y: H - 250, w: 80, h: 16, type: 'neon' },
+      { x: 1000, y: H - 180, w: 96, h: 16, type: 'neon' },
+      { x: 1200, y: H - 280, w: 80, h: 16, type: 'neon' },
+      { x: 1500, y: H - 160, w: 96, h: 16, type: 'neon' },
+      { x: 1700, y: H - 230, w: 80, h: 16, type: 'neon' },
+      { x: 1900, y: H - 180, w: 96, h: 16, type: 'neon' },
+      { x: 2150, y: H - 250, w: 80, h: 16, type: 'neon' },
+      { x: 2400, y: H - 160, w: 96, h: 16, type: 'neon' },
+      { x: 2600, y: H - 220, w: 80, h: 16, type: 'neon' },
+      { x: 2800, y: H - 300, w: 80, h: 16, type: 'neon' },
+      { x: 3050, y: H - 180, w: 96, h: 16, type: 'neon' },
+      // Moving
+      { x: 580, y: H - 120, w: 80, h: 16, type: 'moving', moveX: 120, speed: 1.8 },
+      { x: 1300, y: H - 200, w: 80, h: 16, type: 'moving', moveX: 80, speed: 2.0 },
+      { x: 2050, y: H - 320, w: 80, h: 16, type: 'moving', moveX: 100, speed: 1.5 },
+      { x: 2750, y: H - 150, w: 80, h: 16, type: 'moving', moveX: 90, speed: 2.2 },
+    ],
+    orbs: [
+      { x: 280, y: H - 190 }, { x: 480, y: H - 260 }, { x: 680, y: H - 200 },
+      { x: 880, y: H - 290 }, { x: 1030, y: H - 220 }, { x: 1230, y: H - 320 },
+      { x: 1530, y: H - 200 }, { x: 1730, y: H - 270 }, { x: 1930, y: H - 220 },
+      { x: 2180, y: H - 290 }, { x: 2430, y: H - 200 }, { x: 2630, y: H - 260 },
+      { x: 2830, y: H - 340 }, { x: 3080, y: H - 220 },
+      { x: 150, y: H - 70 }, { x: 500, y: H - 70 }, { x: 1100, y: H - 70 },
+      { x: 1600, y: H - 70 }, { x: 2250, y: H - 70 }, { x: 3350, y: H - 70 },
+    ],
+    enemies: [
+      { x: 450, y: H - 64, type: 'crawler', range: 150 },
+      { x: 800, y: H - 64, type: 'crawler', range: 120 },
+      { x: 1150, y: H - 64, type: 'crawler', range: 160 },
+      { x: 1500, y: H - 64, type: 'crawler', range: 200 },
+      { x: 2200, y: H - 64, type: 'crawler', range: 180 },
+      { x: 2600, y: H - 64, type: 'crawler', range: 150 },
+      { x: 3300, y: H - 64, type: 'crawler', range: 160 },
+      { x: 500, y: H - 270, type: 'floater', range: 80 },
+      { x: 1100, y: H - 320, type: 'floater', range: 100 },
+      { x: 1800, y: H - 280, type: 'floater', range: 90 },
+      { x: 2500, y: H - 260, type: 'floater', range: 110 },
+    ],
+    portal: { x: 3500, y: H - 96 }
+  },
+  // Level 3 — Core Breach
+  {
+    name: "CORE BREACH",
+    width: 4000,
+    bgColor: '#150505',
+    nebula: '#300010',
+    platforms: [
+      { x: 0, y: H - 32, w: 250, h: 32, type: 'metal' },
+      { x: 350, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 600, y: H - 32, w: 120, h: 32, type: 'metal' },
+      { x: 850, y: H - 32, w: 180, h: 32, type: 'metal' },
+      { x: 1150, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 1450, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 1800, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 2100, y: H - 32, w: 200, h: 32, type: 'metal' },
+      { x: 2450, y: H - 32, w: 150, h: 32, type: 'metal' },
+      { x: 2750, y: H - 32, w: 180, h: 32, type: 'metal' },
+      { x: 3100, y: H - 32, w: 120, h: 32, type: 'metal' },
+      { x: 3400, y: H - 32, w: 600, h: 32, type: 'metal' },
+      // Floating — more vertical challenge
+      { x: 200, y: H - 140, w: 64, h: 16, type: 'neon' },
+      { x: 350, y: H - 230, w: 64, h: 16, type: 'neon' },
+      { x: 520, y: H - 170, w: 80, h: 16, type: 'neon' },
+      { x: 700, y: H - 260, w: 64, h: 16, type: 'neon' },
+      { x: 900, y: H - 180, w: 80, h: 16, type: 'neon' },
+      { x: 1100, y: H - 300, w: 64, h: 16, type: 'neon' },
+      { x: 1300, y: H - 200, w: 80, h: 16, type: 'neon' },
+      { x: 1500, y: H - 280, w: 64, h: 16, type: 'neon' },
+      { x: 1700, y: H - 160, w: 80, h: 16, type: 'neon' },
+      { x: 1950, y: H - 240, w: 64, h: 16, type: 'neon' },
+      { x: 2150, y: H - 320, w: 64, h: 16, type: 'neon' },
+      { x: 2350, y: H - 180, w: 80, h: 16, type: 'neon' },
+      { x: 2550, y: H - 260, w: 64, h: 16, type: 'neon' },
+      { x: 2800, y: H - 340, w: 64, h: 16, type: 'neon' },
+      { x: 3000, y: H - 200, w: 80, h: 16, type: 'neon' },
+      { x: 3250, y: H - 280, w: 64, h: 16, type: 'neon' },
+      // Moving — more and faster
+      { x: 430, y: H - 140, w: 70, h: 16, type: 'moving', moveX: 100, speed: 2.0 },
+      { x: 800, y: H - 200, w: 70, h: 16, type: 'moving', moveX: 120, speed: 2.5 },
+      { x: 1200, y: H - 260, w: 70, h: 16, type: 'moving', moveX: 80, speed: 2.2 },
+      { x: 1600, y: H - 350, w: 70, h: 16, type: 'moving', moveX: 110, speed: 2.8 },
+      { x: 2050, y: H - 180, w: 70, h: 16, type: 'moving', moveX: 90, speed: 2.0 },
+      { x: 2650, y: H - 150, w: 70, h: 16, type: 'moving', moveX: 100, speed: 2.5 },
+    ],
+    orbs: [
+      { x: 220, y: H - 180 }, { x: 370, y: H - 270 }, { x: 540, y: H - 210 },
+      { x: 720, y: H - 300 }, { x: 920, y: H - 220 }, { x: 1120, y: H - 340 },
+      { x: 1320, y: H - 240 }, { x: 1520, y: H - 320 }, { x: 1720, y: H - 200 },
+      { x: 1970, y: H - 280 }, { x: 2170, y: H - 360 }, { x: 2370, y: H - 220 },
+      { x: 2570, y: H - 300 }, { x: 2820, y: H - 380 }, { x: 3020, y: H - 240 },
+      { x: 3270, y: H - 320 },
+      { x: 100, y: H - 70 }, { x: 400, y: H - 70 }, { x: 950, y: H - 70 },
+      { x: 1500, y: H - 70 }, { x: 2150, y: H - 70 }, { x: 2800, y: H - 70 },
+      { x: 3500, y: H - 70 }, { x: 3700, y: H - 70 },
+    ],
+    enemies: [
+      { x: 380, y: H - 64, type: 'crawler', range: 120 },
+      { x: 650, y: H - 64, type: 'crawler', range: 100 },
+      { x: 900, y: H - 64, type: 'crawler', range: 150 },
+      { x: 1200, y: H - 64, type: 'crawler', range: 120 },
+      { x: 1500, y: H - 64, type: 'crawler', range: 170 },
+      { x: 1850, y: H - 64, type: 'crawler', range: 130 },
+      { x: 2200, y: H - 64, type: 'crawler', range: 160 },
+      { x: 2500, y: H - 64, type: 'crawler', range: 120 },
+      { x: 2800, y: H - 64, type: 'crawler', range: 150 },
+      { x: 3500, y: H - 64, type: 'crawler', range: 200 },
+      { x: 400, y: H - 280, type: 'floater', range: 90 },
+      { x: 800, y: H - 310, type: 'floater', range: 80 },
+      { x: 1300, y: H - 350, type: 'floater', range: 100 },
+      { x: 1800, y: H - 280, type: 'floater', range: 90 },
+      { x: 2300, y: H - 370, type: 'floater', range: 110 },
+      { x: 2900, y: H - 300, type: 'floater', range: 100 },
+      { x: 3300, y: H - 330, type: 'floater', range: 120 },
+    ],
+    portal: { x: 3900, y: H - 96 }
+  }
+];
+
+// ─── GAME OBJECTS ─────────────────────────────────────
+let player, platforms, orbs, enemies, portal;
+
+function createPlayer(x, y) {
+  return {
+    x, y, w: 24, h: 32,
+    vx: 0, vy: 0,
+    grounded: false,
+    jumping: false,
+    facing: 1,
+    walkFrame: 0,
+    walkTimer: 0,
+    invincible: 0,
+    jetpackParticleTimer: 0,
+  };
+}
+
+function loadLevel(idx) {
+  const lvl = LEVELS[idx];
+  player = createPlayer(60, H - 100);
+  particles = [];
+  camera.x = 0;
+
+  platforms = lvl.platforms.map(p => ({
+    ...p,
+    origX: p.x,
+    origY: p.y,
+    timer: Math.random() * Math.PI * 2
+  }));
+
+  // Validate reachability — ensure every floating platform can be reached
+  // from some nearby lower platform or ground within jump range
+  const MAX_HORIZONTAL_REACH = 220; // max horizontal distance player can cover during a jump
+  for (const plat of platforms) {
+    if (plat.type === 'metal' && plat.y === H - 32) continue; // skip ground
+    // Find the best reachable platform below this one within horizontal range
+    let bestBelow = null;
+    let smallestGap = Infinity;
+    for (const other of platforms) {
+      if (other === plat) continue;
+      if (other.y >= plat.y) { // other is at same level or below
+        // Check horizontal reachability (can reach from edge of other to edge of plat)
+        const horizDist = Math.max(0,
+          Math.max(plat.x, other.x) - Math.min(plat.x + plat.w, other.x + other.w)
+        );
+        if (horizDist <= MAX_HORIZONTAL_REACH) {
+          const vertGap = plat.y < other.y ? other.y - plat.y : 0;
+          if (vertGap > 0 && vertGap < smallestGap) {
+            smallestGap = vertGap;
+            bestBelow = other;
+          }
+        }
+      }
+    }
+    // If the gap to the nearest lower platform exceeds max reachable, lower this platform
+    if (bestBelow && smallestGap > MAX_REACHABLE_HEIGHT) {
+      const newY = bestBelow.y - MAX_REACHABLE_HEIGHT;
+      plat.y = newY;
+      plat.origY = newY;
+    }
+    // If no platform below is found within range, ensure reachable from ground
+    if (!bestBelow) {
+      const groundY = H - 32;
+      const heightAboveGround = groundY - plat.y;
+      if (heightAboveGround > MAX_REACHABLE_HEIGHT) {
+        plat.y = groundY - MAX_REACHABLE_HEIGHT;
+        plat.origY = plat.y;
+      }
+    }
+  }
+
+  orbs = lvl.orbs.map(o => ({
+    ...o, collected: false, bobTimer: Math.random() * Math.PI * 2
+  }));
+
+  enemies = lvl.enemies.map(e => ({
+    ...e,
+    origX: e.x, origY: e.y,
+    alive: true, dir: 1, timer: Math.random() * Math.PI * 2,
+    w: e.type === 'crawler' ? 28 : 24,
+    h: e.type === 'crawler' ? 24 : 24,
+    squishTimer: 0
+  }));
+
+  portal = { ...lvl.portal, timer: 0 };
+}
+
+// ─── DRAWING HELPERS ──────────────────────────────────
+
+function drawPixelRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x - camera.x), Math.round(y), Math.round(w), Math.round(h));
+}
+
+function drawStars() {
+  const speeds = [0.05, 0.15, 0.3];
+  for (let l = 0; l < 3; l++) {
+    for (const s of starLayers[l]) {
+      const sx = ((s.x - camera.x * speeds[l]) % (W * 4) + W * 4) % (W * 4);
+      if (sx > W + 4) continue;
+      const twinkle = Math.sin(frameCount * s.twinkleSpeed) * 0.3 + 0.7;
+      ctx.globalAlpha = s.brightness * twinkle;
+      ctx.fillStyle = l === 2 ? '#aaf' : '#fff';
+      ctx.fillRect(sx, s.y, s.size, s.size);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawNebula() {
+  const lvl = LEVELS[currentLevel];
+  const grd = ctx.createRadialGradient(
+    W / 2 - camera.x * 0.05, H * 0.3, 50,
+    W / 2 - camera.x * 0.05, H * 0.3, 400
+  );
+  grd.addColorStop(0, lvl.nebula + '40');
+  grd.addColorStop(1, 'transparent');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Second nebula cloud
+  const grd2 = ctx.createRadialGradient(
+    W * 0.8 - camera.x * 0.08, H * 0.5, 30,
+    W * 0.8 - camera.x * 0.08, H * 0.5, 300
+  );
+  grd2.addColorStop(0, '#0f055020');
+  grd2.addColorStop(1, 'transparent');
+  ctx.fillStyle = grd2;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawPlatform(p) {
+  const x = Math.round(p.x - camera.x);
+  const y = Math.round(p.y);
+
+  if (p.type === 'metal' || p.type === 'moving') {
+    // Metal plate base
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(x, y, p.w, p.h);
+
+    // Top edge highlight
+    ctx.fillStyle = p.type === 'moving' ? '#f0f' : '#334';
+    ctx.fillRect(x, y, p.w, 2);
+
+    // Panel lines
+    ctx.fillStyle = '#0003';
+    for (let i = 32; i < p.w; i += 32) {
+      ctx.fillRect(x + i, y, 1, p.h);
+    }
+
+    // Rivets
+    ctx.fillStyle = '#445';
+    for (let i = 8; i < p.w; i += 32) {
+      ctx.fillRect(x + i, y + 4, 2, 2);
+      if (p.h > 20) ctx.fillRect(x + i, y + p.h - 6, 2, 2);
+    }
+
+    // Neon underglow for moving
+    if (p.type === 'moving') {
+      ctx.globalAlpha = 0.3 + Math.sin(frameCount * 0.08) * 0.15;
+      ctx.fillStyle = '#f0f';
+      ctx.fillRect(x, y + p.h, p.w, 2);
+      ctx.globalAlpha = 1;
+    }
+  } else if (p.type === 'neon') {
+    // Neon platform
+    const pulse = Math.sin(frameCount * 0.06 + p.origX * 0.01) * 0.2 + 0.8;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x, y, p.w, p.h);
+
+    // Top neon edge
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#0ff';
+    ctx.fillRect(x, y, p.w, 2);
+    // Bottom glow
+    ctx.globalAlpha = pulse * 0.3;
+    ctx.fillRect(x, y + p.h, p.w, 3);
+    // Side accents
+    ctx.globalAlpha = pulse * 0.6;
+    ctx.fillRect(x, y, 2, p.h);
+    ctx.fillRect(x + p.w - 2, y, 2, p.h);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawPlayer() {
+  const p = player;
+  if (p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0) return;
+
+  const x = Math.round(p.x - camera.x);
+  const y = Math.round(p.y);
+  const f = p.facing;
+
+  // Boots
+  ctx.fillStyle = '#445';
+  ctx.fillRect(x + (f === 1 ? 4 : 2), y + 26, 8, 6);
+  ctx.fillRect(x + (f === 1 ? 14 : 12), y + 26, 8, 6);
+
+  // Legs
+  ctx.fillStyle = '#2244aa';
+  ctx.fillRect(x + 6, y + 18, 5, 10);
+  ctx.fillRect(x + 13, y + 18, 5, 10);
+
+  // Body / suit
+  ctx.fillStyle = '#3366cc';
+  ctx.fillRect(x + 4, y + 8, 16, 12);
+
+  // Chest panel
+  ctx.fillStyle = '#0ff';
+  ctx.globalAlpha = 0.6 + Math.sin(frameCount * 0.1) * 0.2;
+  ctx.fillRect(x + 8, y + 10, 8, 4);
+  ctx.globalAlpha = 1;
+
+  // Arms
+  ctx.fillStyle = '#2244aa';
+  const armSwing = p.grounded ? Math.sin(p.walkFrame * 0.3) * 3 : -2;
+  ctx.fillRect(x + 1, y + 9 + armSwing, 4, 10);
+  ctx.fillRect(x + 19, y + 9 - armSwing, 4, 10);
+
+  // Helmet
+  ctx.fillStyle = '#ddd';
+  ctx.fillRect(x + 5, y, 14, 10);
+  // Visor
+  ctx.fillStyle = '#0af';
+  ctx.globalAlpha = 0.8;
+  if (f === 1) {
+    ctx.fillRect(x + 12, y + 2, 6, 5);
+  } else {
+    ctx.fillRect(x + 6, y + 2, 6, 5);
+  }
+  ctx.globalAlpha = 1;
+  // Visor glint
+  ctx.fillStyle = '#fff';
+  if (f === 1) {
+    ctx.fillRect(x + 16, y + 2, 1, 2);
+  } else {
+    ctx.fillRect(x + 7, y + 2, 1, 2);
+  }
+
+  // Jetpack
+  ctx.fillStyle = '#556';
+  const jpx = f === 1 ? x + 1 : x + 19;
+  ctx.fillRect(jpx, y + 6, 4, 10);
+  ctx.fillStyle = '#f80';
+  if (!p.grounded && p.vy < 0) {
+    ctx.globalAlpha = 0.6 + Math.random() * 0.4;
+    ctx.fillRect(jpx, y + 16, 4, 4 + Math.random() * 4);
+    ctx.fillStyle = '#ff0';
+    ctx.fillRect(jpx + 1, y + 16, 2, 3 + Math.random() * 3);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawOrb(o) {
+  if (o.collected) return;
+  const bob = Math.sin(o.bobTimer) * 4;
+  const x = Math.round(o.x - camera.x);
+  const y = Math.round(o.y + bob);
+  const pulse = Math.sin(frameCount * 0.08 + o.bobTimer) * 0.3 + 0.7;
+
+  // Glow
+  ctx.globalAlpha = pulse * 0.15;
+  ctx.fillStyle = '#0f0';
+  ctx.beginPath();
+  ctx.arc(x + 8, y + 8, 16, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Orb body
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#0a0';
+  ctx.fillRect(x + 4, y + 2, 8, 12);
+  ctx.fillRect(x + 2, y + 4, 12, 8);
+
+  // Inner bright
+  ctx.fillStyle = '#0f0';
+  ctx.fillRect(x + 5, y + 4, 6, 8);
+  ctx.fillRect(x + 4, y + 5, 8, 6);
+
+  // Shine
+  ctx.fillStyle = '#bfb';
+  ctx.fillRect(x + 5, y + 4, 2, 2);
+
+  ctx.globalAlpha = 1;
+}
+
+function drawEnemy(e) {
+  if (!e.alive) return;
+  const x = Math.round(e.x - camera.x);
+  const y = Math.round(e.y);
+
+  if (e.type === 'crawler') {
+    const squish = e.squishTimer > 0 ? 0.6 : 1;
+    const ew = Math.round(e.w / squish);
+    const eh = Math.round(e.h * squish);
+    const oy = e.h - eh;
+
+    // Body
+    ctx.fillStyle = '#a030a0';
+    ctx.fillRect(x - (ew - e.w) / 2, y + oy + 4, ew, eh - 4);
+
+    // Top dome
+    ctx.fillStyle = '#c050c0';
+    ctx.fillRect(x + 4 - (ew - e.w) / 2, y + oy, ew - 8, 8);
+
+    // Eyes
+    ctx.fillStyle = '#f0f';
+    const eyeY = y + oy + 6;
+    ctx.fillRect(x + 4, eyeY, 4, 4);
+    ctx.fillRect(x + 18, eyeY, 4, 4);
+
+    // Pupils
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 5 + (e.dir > 0 ? 1 : 0), eyeY + 1, 2, 2);
+    ctx.fillRect(x + 19 + (e.dir > 0 ? 1 : 0), eyeY + 1, 2, 2);
+
+    // Legs
+    ctx.fillStyle = '#803080';
+    const legAnim = Math.sin(frameCount * 0.15) * 2;
+    ctx.fillRect(x + 2, y + oy + eh, 4, 4 + legAnim);
+    ctx.fillRect(x + 10, y + oy + eh, 4, 4 - legAnim);
+    ctx.fillRect(x + 20, y + oy + eh, 4, 4 + legAnim);
+  } else if (e.type === 'floater') {
+    const bob = Math.sin(e.timer) * 6;
+    const fy = y + bob;
+
+    // Glow
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#f00';
+    ctx.beginPath();
+    ctx.arc(x + 12, fy + 12, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Body
+    ctx.fillStyle = '#cc2020';
+    ctx.fillRect(x + 4, fy + 4, 16, 16);
+    ctx.fillRect(x + 2, fy + 6, 20, 12);
+
+    // Eye
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(x + 8, fy + 8, 8, 8);
+    ctx.fillStyle = '#fff';
+    const eyeShift = Math.sin(frameCount * 0.05) * 2;
+    ctx.fillRect(x + 10 + eyeShift, fy + 10, 4, 4);
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(x + 11 + eyeShift, fy + 11, 2, 2);
+
+    // Spikes
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(x, fy + 10, 3, 4);
+    ctx.fillRect(x + 21, fy + 10, 3, 4);
+    ctx.fillRect(x + 10, fy, 4, 4);
+    ctx.fillRect(x + 10, fy + 20, 4, 4);
+  }
+}
+
+function drawPortal() {
+  const p = portal;
+  const x = Math.round(p.x - camera.x);
+  const y = Math.round(p.y);
+  p.timer += 0.05;
+
+  // Outer ring glow
+  for (let i = 3; i >= 0; i--) {
+    ctx.globalAlpha = 0.08 * (4 - i);
+    ctx.fillStyle = '#0ff';
+    const s = 40 + i * 12;
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 32, s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Portal frame
+  ctx.fillStyle = '#223';
+  ctx.fillRect(x, y, 40, 64);
+  ctx.fillStyle = '#334';
+  ctx.fillRect(x + 2, y + 2, 36, 60);
+
+  // Swirling interior
+  for (let row = 0; row < 60; row += 4) {
+    for (let col = 0; col < 36; col += 4) {
+      const dist = Math.sqrt((col - 18) ** 2 + (row - 30) ** 2);
+      const angle = Math.atan2(row - 30, col - 18) + p.timer;
+      const wave = Math.sin(dist * 0.15 - p.timer * 2 + angle) * 0.5 + 0.5;
+      const r = Math.round(wave * 50);
+      const g = Math.round(200 + wave * 55);
+      const b = 255;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.globalAlpha = 0.7 + wave * 0.3;
+      ctx.fillRect(x + 2 + col, y + 2 + row, 4, 4);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Frame edges
+  ctx.fillStyle = '#0ff';
+  ctx.fillRect(x, y, 40, 2);
+  ctx.fillRect(x, y + 62, 40, 2);
+  ctx.fillRect(x, y, 2, 64);
+  ctx.fillRect(x + 38, y, 2, 64);
+}
+
+// ─── PHYSICS / UPDATE ─────────────────────────────────
+const GAME_SPEED = 0.5;
+const GRAVITY = 0.5 * GAME_SPEED;
+const JUMP_FORCE = -9.0;  // independent of GAME_SPEED so jump height stays viable
+const MOVE_SPEED = 4.5 * GAME_SPEED;
+const FRICTION = 0.85;
+const MAX_JUMP_HEIGHT = (JUMP_FORCE * JUMP_FORCE) / (2 * GRAVITY); // ~162px
+const MAX_REACHABLE_HEIGHT = MAX_JUMP_HEIGHT * 0.8; // safe margin ~130px
+
+function rectCollide(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function updatePlatforms() {
+  for (const p of platforms) {
+    if (p.type === 'moving') {
+      p.timer += 0.02 * p.speed * GAME_SPEED;
+      p.x = p.origX + Math.sin(p.timer) * p.moveX;
+    }
+  }
+}
+
+function updatePlayer() {
+  const p = player;
+
+  // Horizontal movement
+  if (keys['ArrowLeft'] || keys['KeyA']) {
+    p.vx -= 1.2 * GAME_SPEED;
+    p.facing = -1;
+  }
+  if (keys['ArrowRight'] || keys['KeyD']) {
+    p.vx += 1.2 * GAME_SPEED;
+    p.facing = 1;
+  }
+
+  p.vx *= FRICTION;
+  if (Math.abs(p.vx) > MOVE_SPEED) p.vx = MOVE_SPEED * Math.sign(p.vx);
+  if (Math.abs(p.vx) < 0.1) p.vx = 0;
+
+  // Jump
+  if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && p.grounded) {
+    p.vy = JUMP_FORCE;
+    p.grounded = false;
+    p.jumping = true;
+    spawnParticles(p.x + p.w / 2, p.y + p.h, '#0af', 6, 2, 20);
+  }
+
+  // Variable jump height — release early for short hop
+  if (p.jumping && !(keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && p.vy < -4) {
+    p.vy = -4;
+  }
+
+  // Gravity
+  p.vy += GRAVITY;
+  if (p.vy > 12) p.vy = 12;
+
+  // Move X
+  p.x += p.vx;
+
+  // Collide X with platforms
+  for (const pl of platforms) {
+    if (rectCollide(p, pl)) {
+      if (p.vx > 0) p.x = pl.x - p.w;
+      else if (p.vx < 0) p.x = pl.x + pl.w;
+      p.vx = 0;
+    }
+  }
+
+  // Move Y
+  p.y += p.vy;
+  p.grounded = false;
+
+  // Collide Y with platforms
+  for (const pl of platforms) {
+    if (rectCollide(p, pl)) {
+      if (p.vy > 0) {
+        p.y = pl.y - p.h;
+        p.vy = 0;
+        p.grounded = true;
+        p.jumping = false;
+
+        // Ride moving platforms
+        if (pl.type === 'moving') {
+          const newX = pl.origX + Math.sin(pl.timer) * pl.moveX;
+          const prevX = pl.origX + Math.sin(pl.timer - 0.02 * pl.speed * GAME_SPEED) * pl.moveX;
+          p.x += newX - prevX;
+        }
+      } else if (p.vy < 0) {
+        p.y = pl.y + pl.h;
+        p.vy = 0;
+      }
+    }
+  }
+
+  // Walk animation
+  if (p.grounded && Math.abs(p.vx) > 0.5) {
+    p.walkTimer++;
+    if (p.walkTimer > 5) {
+      p.walkTimer = 0;
+      p.walkFrame++;
+    }
+  } else {
+    p.walkFrame = 0;
+  }
+
+  // Jetpack particles
+  if (!p.grounded && p.vy < 0) {
+    p.jetpackParticleTimer++;
+    if (p.jetpackParticleTimer % 3 === 0) {
+      const jpx = p.facing === 1 ? p.x + 3 : p.x + 21;
+      spawnParticles(jpx, p.y + 18, '#f80', 1, 1.5, 15);
+    }
+  }
+
+  // Invincibility timer
+  if (p.invincible > 0) p.invincible--;
+
+  // Level bounds
+  if (p.x < 0) p.x = 0;
+  if (p.x > LEVELS[currentLevel].width - p.w) p.x = LEVELS[currentLevel].width - p.w;
+
+  // Fall death
+  if (p.y > H + 50) {
+    playerDie();
+  }
+
+  // Camera
+  const targetCam = p.x - W / 3;
+  camera.x += (targetCam - camera.x) * 0.08;
+  if (camera.x < 0) camera.x = 0;
+  if (camera.x > LEVELS[currentLevel].width - W) camera.x = LEVELS[currentLevel].width - W;
+}
+
+function updateOrbs() {
+  for (const o of orbs) {
+    if (o.collected) continue;
+    o.bobTimer += 0.05;
+    if (rectCollide(player, { x: o.x, y: o.y, w: 16, h: 16 })) {
+      o.collected = true;
+      score += 100;
+      orbsCollected++;
+      spawnParticles(o.x + 8, o.y + 8, '#0f0', 12, 3, 30);
+      screenShake = 4;
+    }
+  }
+}
+
+function updateEnemies() {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+
+    if (e.squishTimer > 0) {
+      e.squishTimer--;
+      if (e.squishTimer <= 0) e.alive = false;
+      continue;
+    }
+
+    if (e.type === 'crawler') {
+      e.x += e.dir * 1.2 * GAME_SPEED;
+      if (e.x > e.origX + e.range || e.x < e.origX - e.range) {
+        e.dir *= -1;
+      }
+    } else if (e.type === 'floater') {
+      e.timer += 0.04 * GAME_SPEED;
+      e.x = e.origX + Math.sin(e.timer * 0.7) * e.range;
+    }
+
+    // Player collision
+    if (player.invincible <= 0 && rectCollide(player, e)) {
+      // Stomp check — player falling and feet above enemy midpoint
+      if (player.vy > 0 && player.y + player.h - 8 < e.y + e.h / 2) {
+        // Stomp!
+        if (e.type === 'crawler') {
+          e.squishTimer = 15;
+        } else {
+          e.alive = false;
+        }
+        player.vy = JUMP_FORCE * 0.7;
+        score += 200;
+        screenShake = 6;
+        spawnParticles(e.x + e.w / 2, e.y + e.h / 2, e.type === 'crawler' ? '#f0f' : '#f44', 15, 4, 25);
+      } else {
+        playerHit();
+      }
+    }
+  }
+}
+
+function checkPortal() {
+  const p = portal;
+  const portalRect = { x: p.x, y: p.y, w: 40, h: 64 };
+  if (rectCollide(player, portalRect)) {
+    spawnParticles(p.x + 20, p.y + 32, '#0ff', 30, 5, 40);
+    screenShake = 10;
+    score += 500;
+    if (currentLevel < LEVELS.length - 1) {
+      state = STATE.LEVEL_COMPLETE;
+      stateTimer = 120;
+    } else {
+      state = STATE.WIN;
+      stateTimer = 0;
+    }
+    showOverlay();
+  }
+}
+
+function playerHit() {
+  lives--;
+  player.invincible = 90;
+  player.vy = -6;
+  screenShake = 10;
+  spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#f00', 20, 4, 30);
+  if (lives <= 0) {
+    state = STATE.GAME_OVER;
+    stateTimer = 0;
+    showOverlay();
+  }
+}
+
+function playerDie() {
+  lives--;
+  screenShake = 8;
+  spawnParticles(player.x + player.w / 2, player.y, '#f00', 20, 4, 30);
+  if (lives <= 0) {
+    state = STATE.GAME_OVER;
+    stateTimer = 0;
+    showOverlay();
+  } else {
+    player.x = 60;
+    player.y = H - 100;
+    player.vx = 0;
+    player.vy = 0;
+    player.invincible = 90;
+    camera.x = 0;
+  }
+}
+
+// ─── UI ───────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('scoreDisplay').textContent = score;
+  document.getElementById('levelDisplay').textContent = currentLevel + 1;
+  document.getElementById('orbDisplay').textContent = orbsCollected;
+  const livesEl = document.getElementById('livesDisplay');
+  livesEl.innerHTML = '<span class="hud-item" style="margin-right:4px">LIVES</span>';
+  for (let i = 0; i < 3; i++) {
+    const div = document.createElement('div');
+    div.className = 'life' + (i >= lives ? ' lost' : '');
+    livesEl.appendChild(div);
+  }
+}
+
+function showOverlay() {
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('hidden');
+  if (state === STATE.LEVEL_COMPLETE) {
+    overlay.innerHTML = `
+      <div class="level-text">SECTOR CLEARED</div>
+      <h2>${LEVELS[currentLevel].name}</h2>
+      <div class="score-final">+500 BONUS</div>
+      <div class="prompt">PRESS ENTER TO CONTINUE</div>
+    `;
+  } else if (state === STATE.GAME_OVER) {
+    overlay.innerHTML = `
+      <h1 style="color:#f44;text-shadow:0 0 20px #f00,0 0 60px #f005">MISSION FAILED</h1>
+      <div class="score-final">FINAL SCORE: ${score}</div>
+      <div class="info">ORBS COLLECTED: ${orbsCollected}</div>
+      <div class="prompt">PRESS ENTER TO RETRY</div>
+    `;
+  } else if (state === STATE.WIN) {
+    overlay.innerHTML = `
+      <h1 style="color:#0f0;text-shadow:0 0 20px #0f0,0 0 60px #0f05">MISSION COMPLETE</h1>
+      <h2>ALL SECTORS CLEARED</h2>
+      <div class="score-final">FINAL SCORE: ${score}</div>
+      <div class="info">ORBS COLLECTED: ${orbsCollected}</div>
+      <div class="prompt">PRESS ENTER TO PLAY AGAIN</div>
+    `;
+  }
+}
+
+// ─── GAME FLOW ────────────────────────────────────────
+function startGame() {
+  state = STATE.PLAYING;
+  score = 0; lives = 3; orbsCollected = 0; currentLevel = 0;
+  document.getElementById('overlay').classList.add('hidden');
+  loadLevel(0);
+}
+
+function nextLevel() {
+  currentLevel++;
+  document.getElementById('overlay').classList.add('hidden');
+  state = STATE.PLAYING;
+  loadLevel(currentLevel);
+}
+
+function resetGame() {
+  state = STATE.PLAYING;
+  score = 0; lives = 3; orbsCollected = 0; currentLevel = 0;
+  document.getElementById('overlay').classList.add('hidden');
+  loadLevel(0);
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────
+function gameLoop() {
+  frameCount++;
+
+  // Background
+  ctx.fillStyle = LEVELS[currentLevel]?.bgColor || '#050510';
+  ctx.fillRect(0, 0, W, H);
+
+  drawStars();
+  drawNebula();
+
+  if (state === STATE.PLAYING) {
+    updatePlatforms();
+    updatePlayer();
+    updateOrbs();
+    updateEnemies();
+    checkPortal();
+    updateParticles();
+
+    // Screen shake
+    if (screenShake > 0) {
+      ctx.save();
+      ctx.translate(
+        (Math.random() - 0.5) * screenShake,
+        (Math.random() - 0.5) * screenShake
+      );
+      screenShake *= 0.85;
+      if (screenShake < 0.5) screenShake = 0;
+    }
+
+    // Draw world
+    for (const p of platforms) drawPlatform(p);
+    for (const o of orbs) drawOrb(o);
+    for (const e of enemies) drawEnemy(e);
+    drawPortal();
+    drawPlayer();
+    drawParticles();
+
+    if (screenShake > 0) ctx.restore();
+
+    updateHUD();
+
+    // Running particles
+    if (player.grounded && Math.abs(player.vx) > 2 && frameCount % 6 === 0) {
+      spawnParticles(
+        player.x + player.w / 2,
+        player.y + player.h,
+        '#556', 2, 1, 15
+      );
+    }
+  } else if (state !== STATE.TITLE) {
+    // Still render world behind overlay
+    updateParticles();
+    if (platforms) {
+      for (const p of platforms) drawPlatform(p);
+      for (const o of orbs) drawOrb(o);
+      for (const e of enemies) drawEnemy(e);
+      drawPortal();
+      drawPlayer();
+      drawParticles();
+    }
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Initialize and start
+loadLevel(0);
+gameLoop();
+</script>
+</body>
+</html>
