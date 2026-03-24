@@ -255,10 +255,11 @@ const STATE = { TITLE: 0, PLAYING: 1, LEVEL_COMPLETE: 2, GAME_OVER: 3, WIN: 4, P
 let state = STATE.TITLE;
 let previousState = STATE.PLAYING;
 let score = 0, lives = 3, orbsCollected = 0, currentLevel = 0;
-let camera = { x: 0, y: 0 };
+let camera = { x: 0, y: 0, renderX: 0, renderY: 0, lookAheadSmooth: 0 };
 let frameCount = 0;
 let stateTimer = 0;
 let screenShake = 0;
+let lastTime = 0;
 
 // ─── COMBO SYSTEM ────────────────────────────────────
 let comboMultiplier = 1;
@@ -309,7 +310,7 @@ function drawScorePopups() {
     ctx.font = `bold ${Math.round(14 * scale)}px 'Orbitron', sans-serif`;
     ctx.fillStyle = p.color;
     ctx.textAlign = 'center';
-    ctx.fillText(p.text, p.x - camera.x, p.y - camera.y);
+    ctx.fillText(p.text, p.x - camera.renderX, p.y - camera.renderY);
     ctx.textAlign = 'left';
   }
   ctx.globalAlpha = 1;
@@ -407,7 +408,7 @@ function drawParticles() {
     const alpha = p.life / p.maxLife;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - camera.x, p.y - camera.y, p.size, p.size);
+    ctx.fillRect(p.x - camera.renderX, p.y - camera.renderY, p.size, p.size);
   }
   ctx.globalAlpha = 1;
 }
@@ -477,8 +478,8 @@ function updateProjectiles() {
 
 function drawProjectiles() {
   for (const p of projectiles) {
-    const x = Math.round(p.x - camera.x);
-    const y = Math.round(p.y - camera.y);
+    const x = Math.round(p.x - camera.renderX);
+    const y = Math.round(p.y - camera.renderY);
     ctx.fillStyle = '#f44';
     ctx.fillRect(x, y, p.w, p.h);
     ctx.fillStyle = '#f88';
@@ -783,6 +784,9 @@ function loadLevel(idx) {
   speedLines = [];
   camera.x = 0;
   camera.y = 0;
+  camera.renderX = 0;
+  camera.renderY = 0;
+  camera.lookAheadSmooth = 0;
   comboMultiplier = 1;
   comboTimer = 0;
   lastCheckpoint = null;
@@ -827,7 +831,7 @@ function loadLevel(idx) {
 
 function drawPixelRect(x, y, w, h, color) {
   ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x - camera.x), Math.round(y - camera.y), Math.round(w), Math.round(h));
+  ctx.fillRect(x - camera.renderX, y - camera.renderY, w, h);
 }
 
 function drawStars() {
@@ -867,8 +871,8 @@ function drawNebula() {
 }
 
 function drawPlatform(p) {
-  const x = Math.round(p.x - camera.x);
-  const y = Math.round(p.y - camera.y);
+  const x = Math.round(p.x - camera.renderX);
+  const y = Math.round(p.y - camera.renderY);
 
   if (p.type === 'metal' || p.type === 'moving') {
     ctx.fillStyle = '#1a1a2e';
@@ -921,12 +925,12 @@ function drawPlayer() {
     const ai = p.afterimages[i];
     const alpha = (ai.life / ai.maxLife) * 0.3;
     ctx.globalAlpha = alpha;
-    drawPlayerSprite(ai.x - camera.x, ai.y - camera.y, ai.facing, '#0af');
+    drawPlayerSprite(ai.x - camera.renderX, ai.y - camera.renderY, ai.facing, '#0af');
     ctx.globalAlpha = 1;
   }
 
-  const x = Math.round(p.x - camera.x);
-  let y = Math.round(p.y - camera.y);
+  const x = Math.round(p.x - camera.renderX);
+  let y = Math.round(p.y - camera.renderY);
 
   // Landing squash effect
   let scaleX = 1, scaleY = 1;
@@ -963,7 +967,7 @@ function drawPlayer() {
   // Shield visual
   if (p.hasShield) {
     p.shieldAngle += 0.03;
-    drawShieldAura(p.x - camera.x + p.w / 2, p.y - camera.y + p.h / 2, p.shieldAngle);
+    drawShieldAura(p.x - camera.renderX + p.w / 2, p.y - camera.renderY + p.h / 2, p.shieldAngle);
   }
 
   // Wall slide sparks visual
@@ -1072,8 +1076,8 @@ function drawShieldAura(cx, cy, angle) {
 function drawOrb(o) {
   if (o.collected) return;
   const bob = Math.sin(o.bobTimer) * 4;
-  const x = Math.round(o.x - camera.x);
-  const y = Math.round(o.y + bob - camera.y);
+  const x = Math.round(o.x - camera.renderX);
+  const y = Math.round(o.y + bob - camera.renderY);
   const pulse = Math.sin(frameCount * 0.08 + o.bobTimer) * 0.3 + 0.7;
 
   ctx.globalAlpha = pulse * 0.15;
@@ -1099,8 +1103,8 @@ function drawOrb(o) {
 
 function drawEnemy(e) {
   if (!e.alive) return;
-  const x = Math.round(e.x - camera.x);
-  const y = Math.round(e.y - camera.y);
+  const x = Math.round(e.x - camera.renderX);
+  const y = Math.round(e.y - camera.renderY);
 
   if (e.type === 'crawler') {
     const squish = e.squishTimer > 0 ? 0.6 : 1;
@@ -1188,8 +1192,8 @@ function drawEnemy(e) {
 
 function drawPortal() {
   const p = portal;
-  const x = Math.round(p.x - camera.x);
-  const y = Math.round(p.y - camera.y);
+  const x = Math.round(p.x - camera.renderX);
+  const y = Math.round(p.y - camera.renderY);
   p.timer += 0.05;
 
   for (let i = 3; i >= 0; i--) {
@@ -1230,8 +1234,8 @@ function drawPortal() {
 }
 
 function drawLaser(l) {
-  const x = Math.round(l.x - camera.x);
-  const y = Math.round(l.y - camera.y);
+  const x = Math.round(l.x - camera.renderX);
+  const y = Math.round(l.y - camera.renderY);
 
   if (l.active) {
     // Warning flicker before turning off
@@ -1272,8 +1276,8 @@ function drawLaser(l) {
 function drawShieldPickup(s) {
   if (s.collected) return;
   const bob = Math.sin(s.bobTimer) * 3;
-  const x = Math.round(s.x - camera.x);
-  const y = Math.round(s.y + bob - camera.y);
+  const x = Math.round(s.x - camera.renderX);
+  const y = Math.round(s.y + bob - camera.renderY);
 
   // Glow
   ctx.globalAlpha = 0.2;
@@ -1308,8 +1312,8 @@ function drawShieldPickup(s) {
 }
 
 function drawCheckpoint(c) {
-  const x = Math.round(c.x - camera.x);
-  const y = Math.round(c.y - camera.y);
+  const x = Math.round(c.x - camera.renderX);
+  const y = Math.round(c.y - camera.renderY);
   const flagHeight = 64;
 
   // Pole
@@ -1353,11 +1357,11 @@ function drawCheckpoint(c) {
 }
 
 // ─── PHYSICS / UPDATE ─────────────────────────────────
-const GAME_SPEED = 0.5;
-const GRAVITY = 0.5 * GAME_SPEED;
+const GRAVITY = 0.28;
 const JUMP_FORCE = -10.0;
-const MOVE_SPEED = 5.0 * GAME_SPEED;
-const FRICTION = 0.85;
+const MOVE_SPEED = 2.8;
+const FRICTION = 0.88;
+const ACCEL = 0.7;
 const COYOTE_FRAMES = 8;
 const JUMP_BUFFER_FRAMES = 10;
 const DASH_DURATION = 8;
@@ -1374,7 +1378,7 @@ function rectCollide(a, b) {
 function updatePlatforms() {
   for (const p of platforms) {
     if (p.type === 'moving') {
-      p.timer += 0.02 * p.speed * GAME_SPEED;
+      p.timer += 0.012 * p.speed;
       p.x = p.origX + Math.sin(p.timer) * p.moveX;
     }
   }
@@ -1431,11 +1435,11 @@ function updatePlayer() {
   } else {
     // Horizontal movement
     if (wantLeft) {
-      p.vx -= 1.2 * GAME_SPEED;
+      p.vx -= ACCEL;
       p.facing = -1;
     }
     if (wantRight) {
-      p.vx += 1.2 * GAME_SPEED;
+      p.vx += ACCEL;
       p.facing = 1;
     }
 
@@ -1633,15 +1637,19 @@ function updatePlayer() {
     spawnSpeedLines();
   }
 
-  // ─── CAMERA (smooth with look-ahead and vertical tracking) ───
-  const lookAhead = p.facing * 80;
-  const targetCamX = p.x - W / 3 + lookAhead;
+  // ─── CAMERA (smooth with gradual look-ahead and vertical tracking) ───
+  const targetLookAhead = p.facing * 80;
+  camera.lookAheadSmooth += (targetLookAhead - camera.lookAheadSmooth) * 0.03;
+  const targetCamX = p.x - W / 3 + camera.lookAheadSmooth;
   const targetCamY = Math.min(0, p.y - H / 2 + 50);
-  camera.x += (targetCamX - camera.x) * 0.06;
-  camera.y += (targetCamY - camera.y) * 0.06;
+  camera.x += (targetCamX - camera.x) * 0.08;
+  camera.y += (targetCamY - camera.y) * 0.04;
   if (camera.x < 0) camera.x = 0;
   if (camera.x > LEVELS[currentLevel].width - W) camera.x = LEVELS[currentLevel].width - W;
   if (camera.y > 0) camera.y = 0;
+  // Snap render camera to whole pixels to prevent sub-pixel jitter
+  camera.renderX = Math.round(camera.x);
+  camera.renderY = Math.round(camera.y);
 }
 
 function updateOrbs() {
@@ -1673,12 +1681,12 @@ function updateEnemies() {
     }
 
     if (e.type === 'crawler') {
-      e.x += e.dir * 1.2 * GAME_SPEED;
+      e.x += e.dir * ACCEL;
       if (e.x > e.origX + e.range || e.x < e.origX - e.range) {
         e.dir *= -1;
       }
     } else if (e.type === 'floater') {
-      e.timer += 0.04 * GAME_SPEED;
+      e.timer += 0.025;
       e.x = e.origX + Math.sin(e.timer * 0.7) * e.range;
     } else if (e.type === 'shooter') {
       e.shootTimer++;
@@ -1836,6 +1844,8 @@ function playerDie() {
     player.dashTimer = 0;
     player.hasDoubleJump = true;
     camera.x = Math.max(0, player.x - W / 3);
+    camera.renderX = Math.round(camera.x);
+    camera.lookAheadSmooth = 0;
   }
 }
 
