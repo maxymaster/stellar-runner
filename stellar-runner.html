@@ -791,34 +791,61 @@ function loadLevel(idx) {
   comboTimer = 0;
   lastCheckpoint = null;
 
-  platforms = lvl.platforms.map(p => ({
-    ...p,
-    origX: p.x,
-    origY: p.y,
-    timer: Math.random() * Math.PI * 2
-  }));
+  // Scale platform heights to match reduced jump physics
+  const GROUND_Y = H - 32;
+  const HEIGHT_SCALE = 0.7;
+  platforms = lvl.platforms.map(p => {
+    let y = p.y;
+    // Only scale floating/neon/moving platforms (not ground-level metal)
+    if (p.y < GROUND_Y) {
+      const heightAboveGround = GROUND_Y - p.y;
+      y = GROUND_Y - Math.round(heightAboveGround * HEIGHT_SCALE);
+    }
+    return { ...p, y, origX: p.x, origY: y, timer: Math.random() * Math.PI * 2 };
+  });
 
-  orbs = lvl.orbs.map(o => ({
-    ...o, collected: false, bobTimer: Math.random() * Math.PI * 2
-  }));
+  // Also scale orb positions to match lowered platforms
+  orbs = lvl.orbs.map(o => {
+    let y = o.y;
+    if (o.y < GROUND_Y) {
+      const heightAboveGround = GROUND_Y - o.y;
+      y = GROUND_Y - Math.round(heightAboveGround * HEIGHT_SCALE);
+    }
+    return { ...o, y, collected: false, bobTimer: Math.random() * Math.PI * 2 };
+  });
 
-  enemies = lvl.enemies.map(e => ({
-    ...e,
-    origX: e.x, origY: e.y,
-    alive: true, dir: 1, timer: Math.random() * Math.PI * 2,
-    w: e.type === 'crawler' ? 28 : (e.type === 'shooter' ? 28 : 24),
-    h: e.type === 'crawler' ? 24 : (e.type === 'shooter' ? 28 : 24),
-    squishTimer: 0,
-    shootTimer: 0,
-  }));
+  enemies = lvl.enemies.map(e => {
+    let y = e.y;
+    if (e.y < GROUND_Y) {
+      const heightAboveGround = GROUND_Y - e.y;
+      y = GROUND_Y - Math.round(heightAboveGround * HEIGHT_SCALE);
+    }
+    return {
+      ...e, y, origX: e.x, origY: y,
+      alive: true, dir: 1, timer: Math.random() * Math.PI * 2,
+      w: e.type === 'crawler' ? 28 : (e.type === 'shooter' ? 28 : 24),
+      h: e.type === 'crawler' ? 24 : (e.type === 'shooter' ? 28 : 24),
+      squishTimer: 0, shootTimer: 0,
+    };
+  });
 
-  lasers = (lvl.lasers || []).map(l => ({
-    ...l, timer: 0, active: true, warningTimer: 0
-  }));
+  lasers = (lvl.lasers || []).map(l => {
+    let y = l.y;
+    if (l.y < GROUND_Y) {
+      const heightAboveGround = GROUND_Y - l.y;
+      y = GROUND_Y - Math.round(heightAboveGround * HEIGHT_SCALE);
+    }
+    return { ...l, y, timer: 0, active: true, warningTimer: 0 };
+  });
 
-  shields = (lvl.shields || []).map(s => ({
-    ...s, collected: false, bobTimer: Math.random() * Math.PI * 2
-  }));
+  shields = (lvl.shields || []).map(s => {
+    let y = s.y;
+    if (s.y < GROUND_Y) {
+      const heightAboveGround = GROUND_Y - s.y;
+      y = GROUND_Y - Math.round(heightAboveGround * HEIGHT_SCALE);
+    }
+    return { ...s, y, collected: false, bobTimer: Math.random() * Math.PI * 2 };
+  });
 
   checkpoints = (lvl.checkpoints || []).map(c => ({
     ...c, activated: false, flagY: 0, glowTimer: 0
